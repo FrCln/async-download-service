@@ -24,6 +24,7 @@ logging.basicConfig(level=LOGGING_LEVEL)
 
 async def archivate(request):
     response = web.StreamResponse()
+    response.enable_chunked_encoding()
 
     archive_hash = request.match_info['archive_hash']
 
