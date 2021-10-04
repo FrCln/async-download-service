@@ -13,7 +13,7 @@ except KeyError:
 
 try:
     PAUSE = float(os.getenv('DOWNLOAD_SERVICE_PAUSE'))
-except ValueError:
+except (ValueError, TypeError):
     PAUSE = None
 
 PHOTO_PATH = os.getenv('DOWNLOAD_SERVICE_PATH', 'test_photos2')
@@ -25,40 +25,42 @@ logging.basicConfig(level=LOGGING_LEVEL)
 async def archivate(request):
     response = web.StreamResponse()
 
-    archive_hash = request.match_info.get('archive_hash')
+    archive_hash = request.match_info['archive_hash']
+
     cwd = os.getcwd()
     dirname = os.path.join(PHOTO_PATH, archive_hash)
 
     if not os.path.exists(dirname):
-        raise web.HTTPNotFound(body="Архив не существует или был удален".encode('utf-8'))
+        raise web.HTTPNotFound(body='Архив не существует или был удален'.encode('utf-8'))
 
     process = await asyncio.create_subprocess_exec(
-        '/usr/bin/zip', '-rj', '-', dirname,
-        stdout=asyncio.subprocess.PIPE
+        '/usr/bin/zip', '-r', '-', archive_hash,
+        stdout=asyncio.subprocess.PIPE,
+        cwd=PHOTO_PATH
     )
 
     response.headers['Content-Disposition'] = f'attachment; filename="{archive_hash}.zip"'
 
-    # Отправляет клиенту HTTP заголовки
-    logging.debug("Sending response headers ...")
+    logging.debug('Sending response headers ...')
     await response.prepare(request)
 
     try:
-        logging.info("Archive sending started ...")
+        logging.info('Archive sending started ...')
         while True:
             buf = await process.stdout.read(4096)
             if not buf:
                 break
 
-            logging.debug("Sending archive chunk ...")
+            logging.debug('Sending archive chunk ...')
             await response.write(buf)
             if PAUSE:
                 await asyncio.sleep(PAUSE)
             
     except (asyncio.CancelledError, ConnectionResetError):
-        logging.info("Download was interrupted by user")
+        logging.info('Download was interrupted by user')
+        raise
     except Exception as e:
-        logging.error(f"Internal server error: {e}")
+        logging.error(f'Internal server error: {e}')
     finally:
         if process.returncode is None:
             process.kill()
